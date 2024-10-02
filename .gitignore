@@ -1,0 +1,19 @@
+# Environment Folders and Files
+.venv
+.vscode
+.terraform
+*.lock*   
+
+# Python Files
+*.ipynb
+*.pyc
+__pycache__/
+
+# Docker Files
+volume/
+
+# Local Only Folder
+experimentation/
+
+# Not Ready to Commit
+stocks_backend/
