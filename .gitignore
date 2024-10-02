@@ -3,6 +3,7 @@
 .vscode
 .terraform
 *.lock*   
+*.tfstate*
 
 # Python Files
 *.ipynb
@@ -14,6 +15,3 @@ volume/
 
 # Local Only Folder
 experimentation/
-
-# Not Ready to Commit
-stocks_backend/
