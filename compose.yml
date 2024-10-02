@@ -36,7 +36,7 @@ services:
       - "${LOCALSTACK_VOLUME_DIR:-./volume}:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
   db:
-    image: postgres:17
+    image: postgres:16
     restart: always
     # set shared memory limit when using docker-compose
     shm_size: 128mb
@@ -52,6 +52,7 @@ services:
       POSTGRES_DB: postgres
     ports:
       - 5432:5432
+      - 5433:5433
 
   adminer:
     image: adminer
