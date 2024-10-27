@@ -190,3 +190,6 @@ def test_register_new_ingestions_no_prev_ingestion(client):
     assert len(data) == 1
     assert ticker.symbol == data[0]["ticker__symbol"]
     assert data[0]["ingestion_status"] == IngestionStatus.ON_QUEUE
+    assert datetime.datetime.fromisoformat(data[0]["metadata__end_ingestion_time"]) == datetime.datetime.fromisoformat(
+        data[0]["metadata__start_ingestion_time"]
+    ) + datetime.timedelta(days=30)

@@ -1,3 +1,4 @@
+from calendar import month
 import json
 import logging
 import datetime
@@ -74,6 +75,16 @@ def list_ingestion_data(request) -> JsonResponse:
     )
 
 
+def get_idle_ingestion_tickers() -> QuerySet[Tickers]:
+    return Tickers.objects.filter(
+        Q(
+            symbol__in=StockIngestion.objects.filter(~Q(ingestion_status=IngestionStatus.ON_QUEUE)).values(
+                "ticker__symbol"
+            )
+        )
+    )
+
+
 @transaction.atomic()
 def update_end_ingestion_time() -> QuerySet[Tickers]:
     # Gets all symbols that are at least one day from last ingestion
@@ -109,7 +120,7 @@ def enqueue_new_ingestion(
         ingestion_status=IngestionStatus.ON_QUEUE,
         metadata=IngestionMetadata.objects.create(
             start_ingestion_time=last_end_time,
-            end_ingestion_time=end_ingestion_time,
+            end_ingestion_time=min(end_ingestion_time, last_end_time + datetime.timedelta(days=30)),
             delta_category=IngestionTimespan.HOUR,
             delta_multiplier=1,
         ),
@@ -118,9 +129,9 @@ def enqueue_new_ingestion(
 
 
 @transaction.atomic()
-def register_new_ingestions() -> HttpResponse:
+def register_new_ingestions(request: HttpRequest) -> HttpResponse:
     # Gets all symbols that have never been ingested before
-    on_queue_symbols = update_end_ingestion_time()
+    on_queue_symbols = get_idle_ingestion_tickers()
     idle_symbols = list(Tickers.objects.difference(on_queue_symbols))
 
     for idle_symbol in idle_symbols:
