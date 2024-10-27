@@ -1,24 +1,46 @@
-from calendar import month
-import json
+import subprocess
 import logging
 import datetime
-from multiprocessing.managers import BaseManager
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.views.decorators.http import require_POST, require_GET
-from .models import IngestionMetadata, IngestionStatus, IngestionTimespan, StockIdx, StockIngestion, Tickers
+from django.core import serializers
+
+from stocks_backend.enums import Environments
+from stocks_backend.settings import (
+    ENVIRONMENT,
+    INFLUX_TOKEN,
+    INFLUX_URL,
+    LOCAL_DOCKER_NAME_DEFAULT,
+    LOCAL_DOCKER_NETWORK_NAME,
+    LOCAL_DOCKER_SETTINGS_KEY,
+    LOCAL_INGESTION_BUCKET_DEFAULT,
+    LOCAL_INGESTION_BUCKET_SETTING_KEY,
+    LOCAL_ORG_DEFAULT,
+    LOCAL_ORG_SETTING_KEY,
+    MAX_PARALLEL_INGESTIONS,
+    POLYGON_API_KEY,
+)
+from stocks_backend.utils import log_subprocess_output
+from .models import (
+    AppSettings,
+    IngestionMetadata,
+    IngestionStatus,
+    IngestionTimespan,
+    StockIdx,
+    StockIngestion,
+    Tickers,
+)
 
 # Create logger and set to info
 logger = logging.Logger(__file__)
 
 
 @require_GET
-def list_all_tickers(request: HttpRequest) -> HttpResponse:
-    data = StockIdx.objects.filter(deleted=False).values(
-        "ticker__symbol", "ticker__name", "ticker__exchange", "ticker__industry", "ticker__sector", "ticker__country"
-    )
-    return JsonResponse({"data": list(data)}, status=200)
+def tickers(request: HttpRequest) -> HttpResponse:
+    data = StockIdx.objects.filter(deleted=False).values()
+    return JsonResponse({"data": list(data.values())}, status=200)
 
 
 @require_POST
@@ -138,3 +160,90 @@ def register_new_ingestions(request: HttpRequest) -> HttpResponse:
         enqueue_new_ingestion(idle_symbol)
 
     return HttpResponse("Enqueued new ingestions and updated existing ones", status=200)
+
+
+def get_ingestion_in_progress() -> QuerySet[StockIngestion]:
+    return StockIngestion.objects.filter(
+        Q(ingestion_status=IngestionStatus.DEPLOYING) | (Q(ingestion_status=IngestionStatus.IN_PROGRESS))
+    )
+
+
+def get_settings_value(key: str) -> str | None:
+    if value := AppSettings.objects.filter(key=key).first():
+        return value.value
+    else:
+        return None
+
+
+def deploy_ingestion(ingestion: StockIngestion):
+    if ENVIRONMENT == Environments.LOCAL:
+        logger.info("Starting local container for ingestion")
+
+        command = [
+            "docker",
+            "run",
+            "-e",
+            f"TICKER={ingestion.ticker.symbol}",
+            "-e",
+            f"FROM_DATE={ingestion.metadata.start_ingestion_time.date().isoformat()}",
+            "-e",
+            f"TO_DATE={ingestion.metadata.end_ingestion_time.date().isoformat()}",
+            "-e",
+            f"TYPE={ingestion.metadata.delta_category}",
+            "-e",
+            f"MULTIPLIER={ingestion.metadata.delta_multiplier}",
+            "-e",
+            f"BUCKET={get_settings_value(LOCAL_INGESTION_BUCKET_SETTING_KEY) or LOCAL_INGESTION_BUCKET_DEFAULT}",
+            "-e",
+            f"ORG={get_settings_value(LOCAL_ORG_SETTING_KEY) or LOCAL_ORG_DEFAULT}",
+            "-e",
+            f"INFLUX_TOKEN={INFLUX_TOKEN}",
+            "-e",
+            f"INFLUX_URL={INFLUX_URL}",
+            "-e",
+            f"POLYGON_API_KEY={POLYGON_API_KEY}",
+            "--network",
+            LOCAL_DOCKER_NETWORK_NAME,
+            get_settings_value(LOCAL_DOCKER_SETTINGS_KEY) or LOCAL_DOCKER_NAME_DEFAULT,
+        ]
+
+        subprocess.run(command)
+
+    else:
+        raise NotImplementedError("Only local environment is supported for now")
+
+
+@require_GET
+@transaction.atomic
+def start_next_ingestion(request: HttpRequest):
+    # Gets the oldest ingestion in the queue
+    if get_ingestion_in_progress().count() >= MAX_PARALLEL_INGESTIONS:
+        logger.info("Not starting ingestion because max parallel ingestion are already running")
+        return JsonResponse({"data": None, "reason": "Max parallel ingestions running"}, status=200)
+
+    next_ingestion = (
+        StockIngestion.objects.filter(ingestion_status=IngestionStatus.ON_QUEUE)
+        .order_by("metadata__end_ingestion_time")
+        .first()
+    )
+    if next_ingestion:
+        logger.info(
+            f"Starting ingestion for {next_ingestion.ticker.symbol} with start time {next_ingestion.metadata.start_ingestion_time} and end time {next_ingestion.metadata.end_ingestion_time}"
+        )
+        next_ingestion.ingestion_status = IngestionStatus.DEPLOYING
+        deploy_ingestion(next_ingestion)
+
+        return JsonResponse(
+            {
+                "data": serializers.serialize(
+                    "json",
+                    [
+                        next_ingestion,
+                    ],
+                )
+            },
+            status=200,
+        )
+
+    else:
+        return JsonResponse({"data": None, "reason": "No ingestions in queue"}, status=200)
