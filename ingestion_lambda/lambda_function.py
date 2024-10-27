@@ -11,6 +11,22 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.client.write.point import Point
 
 
+def get_module_logger(mod_name):
+    """
+    To use this, do logger = get_module_logger(__name__)
+    """
+    logger = logging.getLogger(mod_name)
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s [%(name)-12s] %(levelname)-8s %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+
+logger = get_module_logger(__file__)
+
+
 class AggType(enum.Enum):
     DAY = "day"
     WEEK = "week"
@@ -34,9 +50,6 @@ class StockData:
     next_url: str | None = None
 
 
-logger = logging.Logger(__file__)
-
-
 def make_request(url: str):
     params = {"apiKey": os.environ.get("POLYGON_API_KEY"), "adjusted": "true", "sort": "asc"}
     r = requests.get(url, params=params)
@@ -48,7 +61,7 @@ def make_request(url: str):
 def get_stock_data(
     ticker: str, type: str, multiplier: int, from_date: datetime.date, to_date: datetime.date, max_retries: int = 10
 ) -> StockData | None:
-    logging.info(
+    logger.info(
         f"Started request for {ticker} from {from_date} to {to_date} with type {type} and multiplier {multiplier}"
     )
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/{multiplier}/{type}/{from_date}/{to_date}"
@@ -71,10 +84,10 @@ def get_stock_data(
             else:
                 results.results.extend(data.results)
 
-            logging.info(f"Received {data.count} results from request url {url}")
+            logger.info(f"Received {data.count} results from request url {url}")
         except Exception as e:
-            logging.error(f"Failed to make request to url {url}")
-            logging.error(e)
+            logger.error(f"Failed to make request to url {url}")
+            logger.error(e)
             time.sleep(60)
             retries += 1
 
@@ -106,11 +119,10 @@ def write_data_to_influx(client: InfluxDBClient, bucket_name: str, org_name, dat
         )
 
         write_api.write(bucket_name, org_name, write_data[-1])
-    logging.info(f"Finished writing {len(write_data)} data points to influxdb")
+    logger.info(f"Finished writing {len(write_data)} data points to influxdb")
 
 
 def lambda_handler(event, context=None):
-    logging.getLogger().setLevel(logging.INFO)
     ticker = event.get("ticker")
     type = AggType[event.get("type")]
     multiplier = event.get("multiplier")
@@ -121,7 +133,7 @@ def lambda_handler(event, context=None):
     stocks_bucket = event.get("stocks_bucket")
     org = event.get("org")
 
-    logging.info(
+    logger.info(
         f"""Passed parameters: 
                 ticker={ticker}
                 type={type}
