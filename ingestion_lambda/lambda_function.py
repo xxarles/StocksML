@@ -12,13 +12,13 @@ from influxdb_client.client.write.point import Point
 
 
 class AggType(enum.Enum):
-    day = "day"
-    week = "week"
-    month = "month"
-    quarter = "quarter"
-    year = "year"
-    hour = "hour"
-    minute = "minute"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
+    HOUR = "hour"
+    MINUTE = "minute"
 
 
 @dataclass
@@ -34,10 +34,12 @@ class StockData:
     next_url: str | None = None
 
 
+logger = logging.Logger(__file__)
+
+
 def make_request(url: str):
     params = {"apiKey": os.environ.get("POLYGON_API_KEY"), "adjusted": "true", "sort": "asc"}
     r = requests.get(url, params=params)
-    print(r.url)
     r.raise_for_status()
     data = r.json()
     return data
@@ -45,7 +47,7 @@ def make_request(url: str):
 
 def get_stock_data(
     ticker: str, type: str, multiplier: int, from_date: datetime.date, to_date: datetime.date, max_retries: int = 10
-) -> StockData:
+) -> StockData | None:
     logging.info(
         f"Started request for {ticker} from {from_date} to {to_date} with type {type} and multiplier {multiplier}"
     )
@@ -59,7 +61,11 @@ def get_stock_data(
         if retries >= max_retries:
             raise Exception(f"Failed to make request to url {url} after {retries} retries")
         try:
-            data = StockData(**make_request(next_url))
+            request_data = make_request(next_url)
+            if not request_data["resultsCount"]:
+                results = None
+                break
+            data = StockData(**request_data)
             if not results:
                 results = data
             else:
@@ -143,7 +149,8 @@ def lambda_handler(event, context=None):
 
     results = get_stock_data(ticker, type.value, multiplier, from_date, to_date)
     influx_client = InfluxDBClient(url=url, token=token, ssl=False, verify_ssl=False)
-    write_data_to_influx(influx_client, stocks_bucket, org, results)
+    if results:
+        write_data_to_influx(influx_client, stocks_bucket, org, results)
 
 
 if __name__ == "__main__":
