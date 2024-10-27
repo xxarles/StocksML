@@ -6,8 +6,8 @@ from django.db.models import Q, QuerySet
 from django.views.decorators.http import require_GET
 from django.core import serializers
 
-from ..stocks_backend.enums import Environments
-from ..stocks_backend.settings import (
+from stocks_backend.enums import Environments
+from stocks_backend.settings import (
     ENVIRONMENT,
     INFLUX_TOKEN,
     INFLUX_URL,
@@ -21,7 +21,7 @@ from ..stocks_backend.settings import (
     MAX_PARALLEL_INGESTIONS,
     POLYGON_API_KEY,
 )
-from ..stocks_backend.utils import get_module_logger
+from stocks_backend.utils import get_module_logger
 from .models import (
     AppSettings,
     IngestionMetadata,
