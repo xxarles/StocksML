@@ -13,11 +13,11 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import os
 from pathlib import Path
 
-from .utils import get_module_logger
+from stocks_backend.utils import get_module_logger
 
 logger = get_module_logger(__file__)
 
-from .enums import Environments
+from stocks_backend.enums import Environments
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

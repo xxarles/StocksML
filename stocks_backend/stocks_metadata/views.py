@@ -22,7 +22,7 @@ from stocks_backend.settings import (
     POLYGON_API_KEY,
 )
 from stocks_backend.utils import get_module_logger
-from .models import (
+from stocks_metadata.models import (
     AppSettings,
     IngestionMetadata,
     IngestionStatus,
@@ -36,6 +36,24 @@ from .models import (
 logger = get_module_logger(__file__)
 
 
+@transaction.atomic()
+def tickers_relations(request: HttpRequest, ticker1: str, ticker2: str) -> HttpResponse:
+    if request.method == "PUT":
+        ticker_object1 = Tickers.objects.filter(Q(symbol=ticker1)).first()
+        ticker_object2 = Tickers.objects.filter(Q(symbol=ticker2)).first()
+        if not ticker_object1 or not ticker_object2:
+            return HttpResponseServerError("Tickers do not exist please validate.", status=500)
+        else:
+            ticker_object1.relations.add(ticker_object2)
+            ticker_object2.relations.add(ticker_object1)
+            Tickers().save()
+            return HttpResponse(f"Created relation between {ticker1} and {ticker2}", status=201)
+
+    else:
+        return HttpResponseNotAllowed(permitted_methods=["PUT"])
+
+
+@transaction.atomic()
 def tickers(request: HttpRequest) -> HttpResponse:
     if request.method == "GET":
         data = StockIdx.objects.filter(deleted=False).values()
@@ -146,7 +164,7 @@ def enqueue_new_ingestion(
 
 
 @transaction.atomic()
-def register_new_ingestions(request: HttpRequest) -> HttpResponse:
+def register_new_ingestions(request: HttpRequest | None) -> HttpResponse:
     # Gets all symbols that have never been ingested before
     on_queue_symbols = get_idle_ingestion_tickers()
     idle_symbols = list(Tickers.objects.difference(on_queue_symbols))

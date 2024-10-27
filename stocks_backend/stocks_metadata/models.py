@@ -24,7 +24,7 @@ class IngestionTimespan(models.TextChoices):
 class Tickers(models.Model):
     """Model to store ticker data"""
 
-    symbol = models.CharField(max_length=4, primary_key=True, auto_created=True)
+    symbol = models.CharField(max_length=10, primary_key=True, auto_created=True)
     name = models.CharField(max_length=100)
     exchange = models.CharField(max_length=50, null=True)
     type = models.CharField(max_length=50, null=True)

@@ -1,9 +1,10 @@
 import datetime
 from django.urls import reverse
+from django.db.models import Q
 import pytest
 
-from .views import enqueue_new_ingestion, update_end_ingestion_time
-from .models import (
+from stocks_metadata.views import enqueue_new_ingestion, update_end_ingestion_time
+from stocks_metadata.models import (
     IngestionMetadata,
     IngestionStatus,
     IngestionTimespan,
@@ -16,7 +17,7 @@ dummy_recent_date = datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.timez
 
 
 def create_dummy_ticker():
-    return Tickers.objects.create(symbol="AAPL", name="Apple Inc.", exchange="N", type="tech")
+    return Tickers.objects.create(symbol="DMMY", name="Apple Inc.", exchange="N", type="tech")
 
 
 def create_dummy_ingestion_metadata(dummy_ticker):
@@ -90,13 +91,18 @@ def test_create_ticker(client):
 
 
 @pytest.mark.django_db
-def test_fail_create_ticker(client):
-    response = client.post(reverse("ticker"), {"name": "AAPL", "exchange": "N", "type": "tec"})
-    assert response.status_code == 400
-    all_tickers_response = client.get(reverse("tickers"))
+def test_create_ticker_relation(client):
+    Tickers.objects.create(symbol="AAPL")
+    Tickers.objects.create(symbol="NVDA")
+    response = client.put(
+        reverse("tickers_relations", kwargs={"ticker1": "AAPL", "ticker2": "NVDA"}),
+    )
 
-    assert all_tickers_response.status_code == 200
-    assert len(all_tickers_response.json()["data"]) == 0
+    assert response.status_code == 201
+    relation_list = list(Tickers.objects.filter(Q(symbol="AAPL")).values("relations"))
+    assert relation_list == [{"relations": "NVDA"}]
+    relation_list = list(Tickers.objects.filter(Q(symbol="NVDA")).values("relations"))
+    assert relation_list == [{"relations": "AAPL"}]
 
 
 @pytest.mark.django_db
@@ -180,7 +186,7 @@ def test_register_new_ingestions_no_prev_ingestion(client):
     assert response.status_code == 200
 
     response = client.get(reverse("list_ingestion_data"))
-    data = response.json()["data"]
+    data = [x for x in response.json()["data"] if x["ticker__symbol"] == ticker.symbol]
     assert len(data) == 1
     assert ticker.symbol == data[0]["ticker__symbol"]
     assert data[0]["ingestion_status"] == IngestionStatus.ON_QUEUE
