@@ -13,6 +13,10 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import os
 from pathlib import Path
 
+from stocks_backend.utils import get_module_logger
+
+logger = get_module_logger(__file__)
+
 from stocks_backend.enums import Environments
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -26,7 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-5np+5_3zc4n*4daik_!e0^rxap-e854cvn^rlcnr^d3^tqxcz!"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("", "False") == "True"
 
 ALLOWED_HOSTS: list[str] = []
 
@@ -72,6 +76,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "stocks_backend.wsgi.application"
+ALLOWED_HOSTS = ["*"]
 
 
 # Database
@@ -80,10 +85,10 @@ WSGI_APPLICATION = "stocks_backend.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": "stocks_ingestion",
+        "NAME": os.environ.get("DJANGO_DB_NAME", "stocks_ingestion"),
         "USER": "postgres",
         "PASSWORD": "postgres",
-        "HOST": "127.0.0.1",
+        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
         "PORT": "5432",
     }
 }
@@ -110,7 +115,9 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATICFILE_DIRS = ["static"]
+STATIC_ROOT = "/"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

@@ -1,5 +1,4 @@
 import subprocess
-import logging
 import datetime
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.db import transaction
@@ -22,6 +21,7 @@ from stocks_backend.settings import (
     MAX_PARALLEL_INGESTIONS,
     POLYGON_API_KEY,
 )
+from stocks_backend.utils import get_module_logger
 from .models import (
     AppSettings,
     IngestionMetadata,
@@ -33,7 +33,7 @@ from .models import (
 )
 
 # Create logger and set to info
-logger = logging.Logger(__file__)
+logger = get_module_logger(__file__)
 
 
 @require_GET
@@ -51,6 +51,8 @@ def register_new_ticker(request: HttpRequest) -> HttpResponse:
     industry = request.POST.get("industry")
     sector = request.POST.get("sector")
     country = request.POST.get("country")
+    print("HEEERRREEE")
+    logger.error("WHAAAAAAA")
 
     logger.info(
         f"""Creating new ticker with info: 
