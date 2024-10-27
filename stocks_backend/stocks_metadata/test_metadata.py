@@ -1,10 +1,9 @@
 import datetime
-from urllib import response
 from django.urls import reverse
 import pytest
 
-from stocks_metadata.views import enqueue_new_ingestion, update_end_ingestion_time
-from stocks_metadata.models import (
+from .views import enqueue_new_ingestion, update_end_ingestion_time
+from .models import (
     IngestionMetadata,
     IngestionStatus,
     IngestionTimespan,
@@ -17,9 +16,7 @@ dummy_recent_date = datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.timez
 
 
 def create_dummy_ticker():
-    return Tickers.objects.create(
-        symbol="AAPL", name="Apple Inc.", exchange="N", industry="tech", sector="tech", country="US"
-    )
+    return Tickers.objects.create(symbol="AAPL", name="Apple Inc.", exchange="N", type="tech")
 
 
 def create_dummy_ingestion_metadata(dummy_ticker):
@@ -82,8 +79,8 @@ def create_dummy_ingestion_metadata(dummy_ticker):
 @pytest.mark.django_db
 def test_create_ticker(client):
     response = client.post(
-        reverse("register_new_ticker"),
-        {"name": "AAPL", "symbol": "AAPL", "exchange": "N", "sector": "tec", "industry": "tech", "country": "US"},
+        reverse("tickers"),
+        {"name": "AAPL", "symbol": "AAPL", "exchange": "N", "type": "tec"},
     )
     assert response.status_code == 200
     all_tickers_response = client.get(reverse("tickers"))
@@ -94,10 +91,7 @@ def test_create_ticker(client):
 
 @pytest.mark.django_db
 def test_fail_create_ticker(client):
-    response = client.post(
-        reverse("register_new_ticker"),
-        {"name": "AAPL", "exchange": "N", "sector": "tec", "industry": "tech", "country": "US"},
-    )
+    response = client.post(reverse("ticker"), {"name": "AAPL", "exchange": "N", "type": "tec"})
     assert response.status_code == 400
     all_tickers_response = client.get(reverse("tickers"))
 

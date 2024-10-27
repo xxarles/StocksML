@@ -1,13 +1,13 @@
 import subprocess
 import datetime
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseServerError, JsonResponse
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.http import require_GET
 from django.core import serializers
 
-from stocks_backend.enums import Environments
-from stocks_backend.settings import (
+from ..stocks_backend.enums import Environments
+from ..stocks_backend.settings import (
     ENVIRONMENT,
     INFLUX_TOKEN,
     INFLUX_URL,
@@ -21,7 +21,7 @@ from stocks_backend.settings import (
     MAX_PARALLEL_INGESTIONS,
     POLYGON_API_KEY,
 )
-from stocks_backend.utils import get_module_logger
+from ..stocks_backend.utils import get_module_logger
 from .models import (
     AppSettings,
     IngestionMetadata,
@@ -36,42 +36,36 @@ from .models import (
 logger = get_module_logger(__file__)
 
 
-@require_GET
 def tickers(request: HttpRequest) -> HttpResponse:
-    data = StockIdx.objects.filter(deleted=False).values()
-    return JsonResponse({"data": list(data.values())}, status=200)
+    if request.method == "GET":
+        data = StockIdx.objects.filter(deleted=False).values()
+        return JsonResponse({"data": list(data.values())}, status=200)
 
+    elif request.method == "POST":
+        name = request.POST.get("name")
+        symbol = request.POST.get("symbol")
+        exchange = request.POST.get("exchange")
+        type = request.POST.get("type")
 
-@require_POST
-@transaction.atomic()
-def register_new_ticker(request: HttpRequest) -> HttpResponse:
-    name = request.POST.get("name")
-    symbol = request.POST.get("symbol")
-    exchange = request.POST.get("exchange")
-    industry = request.POST.get("industry")
-    sector = request.POST.get("sector")
-    country = request.POST.get("country")
-    print("HEEERRREEE")
-    logger.error("WHAAAAAAA")
+        logger.info(
+            f"""Creating new ticker with info: 
+                    name: {name}
+                    symbol: {symbol}
+                    exchange: {exchange}
+                    type: {type}
+                    """
+        )
+        try:
+            new_ticker = Tickers.objects.create(symbol=symbol, name=name, exchange=exchange, type=type)
+            StockIdx.objects.create(ticker=new_ticker, deleted=False)
+            return HttpResponse("Created new ticker", status=200)
 
-    logger.info(
-        f"""Creating new ticker with info: 
-                name: {name}
-                symbol: {symbol}
-                exchange: {exchange}
-                industry: {industry}
-                sector: {sector}
-                country: {country}"""
-    )
-    if name is None or symbol is None or exchange is None or industry is None or sector is None or country is None:
-        return HttpResponse("Missing required fields", status=400)
+        except Exception as e:
+            logger.error(e)
+            return HttpResponseServerError(f"Internal Server Error: {e}", status=500)
 
     else:
-        new_ticker = Tickers.objects.create(
-            symbol=symbol, name=name, exchange=exchange, industry=industry, sector=sector, country=country
-        )
-        StockIdx.objects.create(ticker=new_ticker, deleted=False)
-        return HttpResponse("Created new ticker", status=200)
+        return HttpResponseNotAllowed(permitted_methods=["GET", "POST"])
 
 
 @require_GET

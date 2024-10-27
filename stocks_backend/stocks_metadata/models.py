@@ -27,9 +27,8 @@ class Tickers(models.Model):
     symbol = models.CharField(max_length=4, primary_key=True, auto_created=True)
     name = models.CharField(max_length=100)
     exchange = models.CharField(max_length=50, null=True)
-    industry = models.CharField(max_length=50, null=True)
-    sector = models.CharField(max_length=50, null=True)
-    country = models.CharField(max_length=50, null=True)
+    type = models.CharField(max_length=50, null=True)
+    relations = models.ManyToManyField("Tickers", symmetrical=False)
 
     class Meta(TypedModelMeta):
         """Indexing on every column since input is rare"""
@@ -38,9 +37,6 @@ class Tickers(models.Model):
             models.Index(fields=["symbol"], name="symbol_idx"),
             models.Index(fields=["name"], name="name_idx"),
             models.Index(fields=["exchange"], name="exchange_idx"),
-            models.Index(fields=["industry"], name="industry_idx"),
-            models.Index(fields=["sector"], name="sector_idx"),
-            models.Index(fields=["country"], name="country_idx"),
         ]
 
 
