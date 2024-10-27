@@ -11,14 +11,30 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.client.write.point import Point
 
 
+def get_module_logger(mod_name):
+    """
+    To use this, do logger = get_module_logger(__name__)
+    """
+    logger = logging.getLogger(mod_name)
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s [%(name)-12s] %(levelname)-8s %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+
+logger = get_module_logger(__file__)
+
+
 class AggType(enum.Enum):
-    day = "day"
-    week = "week"
-    month = "month"
-    quarter = "quarter"
-    year = "year"
-    hour = "hour"
-    minute = "minute"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
+    HOUR = "hour"
+    MINUTE = "minute"
 
 
 @dataclass
@@ -37,7 +53,6 @@ class StockData:
 def make_request(url: str):
     params = {"apiKey": os.environ.get("POLYGON_API_KEY"), "adjusted": "true", "sort": "asc"}
     r = requests.get(url, params=params)
-    print(r.url)
     r.raise_for_status()
     data = r.json()
     return data
@@ -45,8 +60,8 @@ def make_request(url: str):
 
 def get_stock_data(
     ticker: str, type: str, multiplier: int, from_date: datetime.date, to_date: datetime.date, max_retries: int = 10
-) -> StockData:
-    logging.info(
+) -> StockData | None:
+    logger.info(
         f"Started request for {ticker} from {from_date} to {to_date} with type {type} and multiplier {multiplier}"
     )
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/{multiplier}/{type}/{from_date}/{to_date}"
@@ -59,16 +74,20 @@ def get_stock_data(
         if retries >= max_retries:
             raise Exception(f"Failed to make request to url {url} after {retries} retries")
         try:
-            data = StockData(**make_request(next_url))
+            request_data = make_request(next_url)
+            if not request_data["resultsCount"]:
+                results = None
+                break
+            data = StockData(**request_data)
             if not results:
                 results = data
             else:
                 results.results.extend(data.results)
 
-            logging.info(f"Received {data.count} results from request url {url}")
+            logger.info(f"Received {data.count} results from request url {url}")
         except Exception as e:
-            logging.error(f"Failed to make request to url {url}")
-            logging.error(e)
+            logger.error(f"Failed to make request to url {url}")
+            logger.error(e)
             time.sleep(60)
             retries += 1
 
@@ -100,11 +119,10 @@ def write_data_to_influx(client: InfluxDBClient, bucket_name: str, org_name, dat
         )
 
         write_api.write(bucket_name, org_name, write_data[-1])
-    logging.info(f"Finished writing {len(write_data)} data points to influxdb")
+    logger.info(f"Finished writing {len(write_data)} data points to influxdb")
 
 
 def lambda_handler(event, context=None):
-    logging.getLogger().setLevel(logging.INFO)
     ticker = event.get("ticker")
     type = AggType[event.get("type")]
     multiplier = event.get("multiplier")
@@ -115,7 +133,7 @@ def lambda_handler(event, context=None):
     stocks_bucket = event.get("stocks_bucket")
     org = event.get("org")
 
-    logging.info(
+    logger.info(
         f"""Passed parameters: 
                 ticker={ticker}
                 type={type}
@@ -143,7 +161,8 @@ def lambda_handler(event, context=None):
 
     results = get_stock_data(ticker, type.value, multiplier, from_date, to_date)
     influx_client = InfluxDBClient(url=url, token=token, ssl=False, verify_ssl=False)
-    write_data_to_influx(influx_client, stocks_bucket, org, results)
+    if results:
+        write_data_to_influx(influx_client, stocks_bucket, org, results)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from stocks_metadata.models import (
     Tickers,
 )
 
-dummy_old_date = datetime.datetime(2000, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+dummy_old_date = datetime.datetime(2023, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
 dummy_recent_date = datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
 
@@ -86,7 +86,7 @@ def test_create_ticker(client):
         {"name": "AAPL", "symbol": "AAPL", "exchange": "N", "sector": "tec", "industry": "tech", "country": "US"},
     )
     assert response.status_code == 200
-    all_tickers_response = client.get(reverse("list_all_tickers"))
+    all_tickers_response = client.get(reverse("tickers"))
 
     assert all_tickers_response.status_code == 200
     assert len(all_tickers_response.json()["data"]) == 1
@@ -99,7 +99,7 @@ def test_fail_create_ticker(client):
         {"name": "AAPL", "exchange": "N", "sector": "tec", "industry": "tech", "country": "US"},
     )
     assert response.status_code == 400
-    all_tickers_response = client.get(reverse("list_all_tickers"))
+    all_tickers_response = client.get(reverse("tickers"))
 
     assert all_tickers_response.status_code == 200
     assert len(all_tickers_response.json()["data"]) == 0
@@ -193,3 +193,27 @@ def test_register_new_ingestions_no_prev_ingestion(client):
     assert datetime.datetime.fromisoformat(data[0]["metadata__end_ingestion_time"]) == datetime.datetime.fromisoformat(
         data[0]["metadata__start_ingestion_time"]
     ) + datetime.timedelta(days=30)
+
+
+@pytest.mark.django_db
+def test_no_next_ingestion(client):
+    response = client.get(reverse("start_next_ingestion"))
+    assert response.json()["data"] is None
+
+
+@pytest.mark.django_db
+def test_start_next_ingestion(client):
+    ticker = create_dummy_ticker()
+    StockIngestion.objects.create(
+        ticker=ticker,
+        ingestion_status=IngestionStatus.ON_QUEUE,
+        created_at=dummy_old_date,
+        metadata=IngestionMetadata.objects.create(
+            start_ingestion_time=dummy_old_date,
+            end_ingestion_time=dummy_old_date + datetime.timedelta(days=3),
+            delta_category=IngestionTimespan.HOUR,
+            delta_multiplier=1,
+        ),
+    )
+    response = client.get(reverse("start_next_ingestion"))
+    assert response.json()["data"] is not None

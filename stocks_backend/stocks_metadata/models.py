@@ -84,3 +84,19 @@ class StockIdx(models.Model):
             models.Index(fields=["updated_at"], name="updated_at_idx"),
             models.Index(fields=["deleted"], name="deleted_idx"),
         ]
+
+
+# Basic app settings
+class AppSettings(models.Model):
+    """Model to store app settings"""
+
+    key = models.CharField(max_length=50, primary_key=True)
+    value = models.TextField()
+
+    class Meta:
+        """Indexing on every column since input is rare"""
+
+        indexes = [
+            models.Index(fields=["key"], name="key_idx"),
+            models.Index(fields=["value"], name="value_idx"),
+        ]
