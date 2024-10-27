@@ -22,7 +22,6 @@ from stocks_backend.settings import (
     MAX_PARALLEL_INGESTIONS,
     POLYGON_API_KEY,
 )
-from stocks_backend.utils import log_subprocess_output
 from .models import (
     AppSettings,
     IngestionMetadata,

@@ -210,7 +210,6 @@ def test_start_next_ingestion(client):
         created_at=dummy_old_date,
         metadata=IngestionMetadata.objects.create(
             start_ingestion_time=dummy_old_date,
-            # stsrt date +1
             end_ingestion_time=dummy_old_date + datetime.timedelta(days=3),
             delta_category=IngestionTimespan.HOUR,
             delta_multiplier=1,
