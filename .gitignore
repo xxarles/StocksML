@@ -15,3 +15,6 @@ volume/
 
 # Local Only Folder
 experimentation/
+
+# zip files
+*.zip
