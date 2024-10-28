@@ -1,6 +1,7 @@
 # Currently empty and used to test infra deploy
 from dataclasses import dataclass
 import datetime
+import json
 import time
 import requests
 import os
@@ -9,6 +10,18 @@ import enum
 from influxdb_client.client.influxdb_client import InfluxDBClient
 from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.client.write.point import Point
+
+
+class IngestionStatus(enum.Enum):
+    IN_PROGRESS = "IN_PROGRESS"
+    SUCCESS = "SUCCESS"
+    FAILURE = "FAILURE"
+
+
+def send_status_update(url: str, id: int, status: IngestionStatus):
+    headers = {"content-type": "application/json"}
+    request = requests.put(url, headers=headers, data=json.dumps({"id": int(id), "ingestion_status": status.value}))
+    request.raise_for_status()
 
 
 def get_module_logger(mod_name):
@@ -88,7 +101,7 @@ def get_stock_data(
         except Exception as e:
             logger.error(f"Failed to make request to url {url}")
             logger.error(e)
-            time.sleep(60)
+            time.sleep(10)
             retries += 1
 
     return results
@@ -132,6 +145,7 @@ def lambda_handler(event, context=None):
     url = os.environ.get("INFLUX_URL")
     stocks_bucket = event.get("stocks_bucket")
     org = event.get("org")
+    update_status_url = os.environ.get("INGESTION_STATUS_UPDATE_URL")
 
     logger.info(
         f"""Passed parameters: 
@@ -142,25 +156,35 @@ def lambda_handler(event, context=None):
                 to_date={to_date}
                 token={token is not None}
                 url={url}
-                stockes_bucket={stocks_bucket}
+                stocks_bucket={stocks_bucket}
                 org={org}
                  """
     )
-    if (
-        not ticker
-        or not type
-        or not multiplier
-        or not from_date
-        or not to_date
-        or not token
-        or not url
-        or not stocks_bucket
-        or not org
-    ):
-        raise ValueError("Missing required parameters")
+    errors = []
+    if not ticker:
+        errors.append("Ticker is required")
+    if not type:
+        errors.append("Type is required")
+    if not multiplier:
+        errors.append("Multiplier is required")
+    if not from_date:
+        errors.append("From date is required")
+    if not to_date:
+        errors.append("To date is required")
+    if not token:
+        errors.append("Influx token is required")
+    if not url:
+        errors.append("Influx url is required")
+    if not stocks_bucket:
+        errors.append("Stocks bucket is required")
+    if not org:
+        errors.append("Organization is required")
+
+    if errors:
+        raise ValueError(f"One or more required params were not passed: {errors}")
 
     results = get_stock_data(ticker, type.value, multiplier, from_date, to_date)
-    influx_client = InfluxDBClient(url=url, token=token, ssl=False, verify_ssl=False)
+    influx_client = InfluxDBClient(url=url, token=token or "", ssl=False, verify_ssl=False)
     if results:
         write_data_to_influx(influx_client, stocks_bucket, org, results)
 
@@ -176,6 +200,13 @@ if __name__ == "__main__":
     parser.add_argument("--to_date", dest="to_date", type=str, help="To date for data")
     parser.add_argument("--stocks_bucket", dest="stocks_bucket", type=str, help="Bucket name for stocks data")
     parser.add_argument("--org", dest="org", type=str, help="Organization name for stocks data")
+    parser.add_argument("--id", dest="id", type=int, help="id name for stocks ingestion")
+    parser.add_argument(
+        "--ingestion_status_update_url",
+        dest="ingestion_status_update_url",
+        type=str,
+        help="URL to send status update of the job",
+    )
     args = parser.parse_args()
     event = {
         "ticker": args.ticker,
@@ -188,4 +219,9 @@ if __name__ == "__main__":
     }
 
     args = parser.parse_args()
-    lambda_handler(event)
+    try:
+        send_status_update(args.ingestion_status_update_url, args.id, status=IngestionStatus.IN_PROGRESS)
+        lambda_handler(event)
+        send_status_update(args.ingestion_status_update_url, args.id, status=IngestionStatus.SUCCESS)
+    except Exception as e:
+        send_status_update(args.ingestion_status_update_url, args.id, status=IngestionStatus.FAILURE)

@@ -1,1 +1,1 @@
-python /lambda_function.py --ticker $TICKER --from_date $FROM_DATE --to_date $TO_DATE --type $TYPE --multiplier $MULTIPLIER --stocks_bucket $BUCKET --org $ORG
+python /lambda_function.py --ticker $TICKER --from_date $FROM_DATE --to_date $TO_DATE --type $TYPE --multiplier $MULTIPLIER --stocks_bucket $BUCKET --org $ORG --id $ID --ingestion_status_update_url $INGESTION_STATUS_UPDATE_URL
