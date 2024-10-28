@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from stocks_metadata.models import Tickers
+from .models import Tickers
 
 # Register your models here.
 

@@ -128,7 +128,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 MAX_PARALLEL_INGESTIONS = 2
 ENVIRONMENT = Environments.LOCAL
 
-LOCAL_DOCKER_NAME_DEFAULT = "lambda_docker:latest"
+LOCAL_DOCKER_NAME_DEFAULT = "ingestion_lambda:latest"
 LOCAL_INGESTION_BUCKET_DEFAULT = "stocks"
 LOCAL_ORG_DEFAULT = "MyOrg"
 
@@ -139,5 +139,6 @@ LOCAL_DOCKER_SETTINGS_KEY = "LOCAL_DOCKER_NAME"
 INFLUX_TOKEN = os.environ.get("INFLUX_TOKEN")
 LOCAL_INFLUX_CONTAINER_NAME = "marketdataml-influxdb2-1"
 INFLUX_URL = f"http://{LOCAL_INFLUX_CONTAINER_NAME}:8086"
+INGESTION_STATUS_UPDATE_URL = f"http://stocks-backend:8000/stocks_metadata/update_ingestion_status"
 LOCAL_DOCKER_NETWORK_NAME = "marketdataml_default"
 POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY")

@@ -3,6 +3,10 @@ services:
     image: stocks_orchestrator:latest
     environment:
       - NEXT_INGESTION_URL=http://stocks-backend:8000/stocks_metadata/start_next_ingestion
+      - REGISTER_NEW_INGESTIONS_URL=http://stocks-backend:8000/stocks_metadata/register_new_ingestions
+      - CLEANUP_INGESTION_PENDING_STATUS=http://stocks-backend:8000/stocks_metadata/cleanup_ingestion_pending_status
+    depends_on:
+      - stocks-backend
   stocks-backend:
     image: stocks_backend:latest
     ports:

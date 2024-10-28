@@ -24,12 +24,11 @@ class IngestionTimespan(models.TextChoices):
 class Tickers(models.Model):
     """Model to store ticker data"""
 
-    symbol = models.CharField(max_length=4, primary_key=True, auto_created=True)
+    symbol = models.CharField(max_length=10, primary_key=True, auto_created=True)
     name = models.CharField(max_length=100)
     exchange = models.CharField(max_length=50, null=True)
-    industry = models.CharField(max_length=50, null=True)
-    sector = models.CharField(max_length=50, null=True)
-    country = models.CharField(max_length=50, null=True)
+    type = models.CharField(max_length=50, null=True)
+    relations = models.ManyToManyField("Tickers", symmetrical=False)
 
     class Meta(TypedModelMeta):
         """Indexing on every column since input is rare"""
@@ -38,9 +37,6 @@ class Tickers(models.Model):
             models.Index(fields=["symbol"], name="symbol_idx"),
             models.Index(fields=["name"], name="name_idx"),
             models.Index(fields=["exchange"], name="exchange_idx"),
-            models.Index(fields=["industry"], name="industry_idx"),
-            models.Index(fields=["sector"], name="sector_idx"),
-            models.Index(fields=["country"], name="country_idx"),
         ]
 
 
@@ -62,6 +58,7 @@ class StockIngestion(models.Model):
     ingestion_started_at = models.DateTimeField(null=True)
     ingestion_status = models.TextField(choices=IngestionStatus.choices)
     ingestion_finished_at = models.DateTimeField(null=True)
+    ingestion_deployed_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     metadata = models.ForeignKey(IngestionMetadata, on_delete=models.CASCADE)
 
