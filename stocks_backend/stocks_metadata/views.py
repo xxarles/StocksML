@@ -1,9 +1,17 @@
+import json
 import subprocess
 import datetime
-from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseServerError, JsonResponse
+from django.http import (
+    HttpRequest,
+    HttpResponse,
+    HttpResponseNotAllowed,
+    HttpResponseServerError,
+    JsonResponse,
+)
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.views.decorators.http import require_GET
+from django.views.decorators.csrf import csrf_exempt
 from django.core import serializers
 
 from stocks_backend.enums import Environments
@@ -11,6 +19,7 @@ from stocks_backend.settings import (
     ENVIRONMENT,
     INFLUX_TOKEN,
     INFLUX_URL,
+    INGESTION_STATUS_UPDATE_URL,
     LOCAL_DOCKER_NAME_DEFAULT,
     LOCAL_DOCKER_NETWORK_NAME,
     LOCAL_DOCKER_SETTINGS_KEY,
@@ -34,6 +43,7 @@ from stocks_metadata.models import (
 
 # Create logger and set to info
 logger = get_module_logger(__file__)
+dummy_old_date = datetime.datetime(2000, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
 
 @transaction.atomic()
@@ -112,8 +122,8 @@ def list_ingestion_data(request) -> JsonResponse:
 
 def get_idle_ingestion_tickers() -> QuerySet[Tickers]:
     return Tickers.objects.filter(
-        Q(
-            symbol__in=StockIngestion.objects.filter(~Q(ingestion_status=IngestionStatus.ON_QUEUE)).values(
+        ~Q(
+            symbol__in=StockIngestion.objects.filter(Q(ingestion_status=IngestionStatus.ON_QUEUE)).values(
                 "ticker__symbol"
             )
         )
@@ -143,7 +153,7 @@ def enqueue_new_ingestion(
         .order_by("-metadata__end_ingestion_time")
         .first()
     )
-    last_end_time = datetime.datetime(2000, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    last_end_time = datetime.datetime(2023, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
     if last_success:
         last_end_time = last_success.metadata.end_ingestion_time
 
@@ -166,13 +176,12 @@ def enqueue_new_ingestion(
 @transaction.atomic()
 def register_new_ingestions(request: HttpRequest | None) -> HttpResponse:
     # Gets all symbols that have never been ingested before
-    on_queue_symbols = get_idle_ingestion_tickers()
-    idle_symbols = list(Tickers.objects.difference(on_queue_symbols))
+    idle_symbols = get_idle_ingestion_tickers()
 
     for idle_symbol in idle_symbols:
         enqueue_new_ingestion(idle_symbol)
 
-    return HttpResponse("Enqueued new ingestions and updated existing ones", status=200)
+    return HttpResponse(f"Enqueued new ingestions for {len(idle_symbols)}", status=200)
 
 
 def get_ingestion_in_progress() -> QuerySet[StockIngestion]:
@@ -195,6 +204,8 @@ def deploy_ingestion(ingestion: StockIngestion):
         command = [
             "docker",
             "run",
+            "-d",
+            "--rm",
             "-e",
             f"TICKER={ingestion.ticker.symbol}",
             "-e",
@@ -203,6 +214,8 @@ def deploy_ingestion(ingestion: StockIngestion):
             f"TO_DATE={ingestion.metadata.end_ingestion_time.date().isoformat()}",
             "-e",
             f"TYPE={ingestion.metadata.delta_category}",
+            "-e",
+            f"INGESTION_ID={ingestion.id}",
             "-e",
             f"MULTIPLIER={ingestion.metadata.delta_multiplier}",
             "-e",
@@ -215,19 +228,23 @@ def deploy_ingestion(ingestion: StockIngestion):
             f"INFLUX_URL={INFLUX_URL}",
             "-e",
             f"POLYGON_API_KEY={POLYGON_API_KEY}",
+            "-e",
+            f"INGESTION_STATUS_UPDATE_URL={INGESTION_STATUS_UPDATE_URL}",
+            "-e",
+            f"ID={ingestion.id}",
             "--network",
             LOCAL_DOCKER_NETWORK_NAME,
             get_settings_value(LOCAL_DOCKER_SETTINGS_KEY) or LOCAL_DOCKER_NAME_DEFAULT,
         ]
 
         subprocess.run(command)
+        logger.info("Started docker sub run")
 
     else:
         raise NotImplementedError("Only local environment is supported for now")
 
 
 @require_GET
-@transaction.atomic
 def start_next_ingestion(request: HttpRequest):
     # Gets the oldest ingestion in the queue
     if get_ingestion_in_progress().count() >= MAX_PARALLEL_INGESTIONS:
@@ -244,6 +261,7 @@ def start_next_ingestion(request: HttpRequest):
             f"Starting ingestion for {next_ingestion.ticker.symbol} with start time {next_ingestion.metadata.start_ingestion_time} and end time {next_ingestion.metadata.end_ingestion_time}"
         )
         next_ingestion.ingestion_status = IngestionStatus.DEPLOYING
+        next_ingestion.save()
         deploy_ingestion(next_ingestion)
 
         return JsonResponse(
@@ -260,3 +278,40 @@ def start_next_ingestion(request: HttpRequest):
 
     else:
         return JsonResponse({"data": None, "reason": "No ingestions in queue"}, status=200)
+
+
+@csrf_exempt
+@transaction.atomic()
+def update_ingestion_status(request: HttpRequest):
+    data = json.loads(request.body)
+    id = data.get("id")
+    status = IngestionStatus(data.get("ingestion_status"))
+    stock_ingestion = StockIngestion.objects.get(id=id)
+    stock_ingestion.ingestion_status = status
+    if status == IngestionStatus.FAILURE or status == IngestionStatus.SUCCESS:
+        stock_ingestion.ingestion_finished_at = datetime.datetime.now(tz=datetime.timezone.utc)
+    if status == IngestionStatus.IN_PROGRESS:
+        stock_ingestion.ingestion_started_at = datetime.datetime.now(tz=datetime.timezone.utc)
+    stock_ingestion.save()
+
+    logger.info(f"Update ingestion status for id {stock_ingestion.id}")
+    return HttpResponse("Successfully updated ingestion status")
+
+
+@require_GET
+@transaction.atomic()
+def cleanup_ingestion_pending_status(request: HttpRequest) -> HttpResponse:
+    pending_ingestion = StockIngestion.objects.filter(
+        Q(ingestion_status=IngestionStatus.DEPLOYING) | Q(ingestion_status=IngestionStatus.IN_PROGRESS)
+    )
+    cleanup_count = 0
+    for ingestion in pending_ingestion:
+        last_update = max(
+            ingestion.ingestion_deployed_at or dummy_old_date, ingestion.ingestion_started_at or dummy_old_date
+        )
+        if datetime.datetime.now(tz=datetime.timezone.utc) - last_update > datetime.timedelta(minutes=20):
+            ingestion.ingestion_status = IngestionStatus.FAILURE
+            ingestion.save()
+            cleanup_count += 1
+
+    return HttpResponse(f"Cleaned up {cleanup_count} stale ingestion", status=200)

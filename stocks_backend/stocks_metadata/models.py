@@ -58,6 +58,7 @@ class StockIngestion(models.Model):
     ingestion_started_at = models.DateTimeField(null=True)
     ingestion_status = models.TextField(choices=IngestionStatus.choices)
     ingestion_finished_at = models.DateTimeField(null=True)
+    ingestion_deployed_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     metadata = models.ForeignKey(IngestionMetadata, on_delete=models.CASCADE)
 

@@ -1,4 +1,5 @@
 import datetime
+import json
 from django.urls import reverse
 from django.db.models import Q
 import pytest
@@ -148,7 +149,7 @@ def test_enqueue_new_ingestion_non_existent(client):
     assert data[0]["ingestion_status"] == IngestionStatus.ON_QUEUE
     assert data[0]["ticker__symbol"] == ticker.symbol
     assert datetime.datetime.fromisoformat(data[0]["metadata__start_ingestion_time"]) == datetime.datetime(
-        2000, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc
+        2023, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc
     )
 
 
@@ -217,3 +218,87 @@ def test_start_next_ingestion(client):
     )
     response = client.get(reverse("start_next_ingestion"))
     assert response.json()["data"] is not None
+
+
+@pytest.mark.django_db
+def test_update_status(client):
+    ticker = create_dummy_ticker()
+    st_ingestion = StockIngestion.objects.create(
+        ticker=ticker,
+        ingestion_status=IngestionStatus.ON_QUEUE,
+        created_at=dummy_old_date,
+        metadata=IngestionMetadata.objects.create(
+            start_ingestion_time=dummy_old_date,
+            end_ingestion_time=dummy_old_date + datetime.timedelta(days=3),
+            delta_category=IngestionTimespan.HOUR,
+            delta_multiplier=1,
+        ),
+    )
+    ingestion_status = IngestionStatus.IN_PROGRESS
+    response = client.put(
+        reverse("update_ingestion_status"),
+        data=json.dumps({"ingestion_status": ingestion_status.value, "id": st_ingestion.id}),
+    )
+    st_ingestion.refresh_from_db()
+    assert st_ingestion.ingestion_status == ingestion_status
+    assert st_ingestion.ingestion_started_at
+
+
+@pytest.mark.django_db
+def test_update_status_failure(client):
+    ticker = create_dummy_ticker()
+    st_ingestion = StockIngestion.objects.create(
+        ticker=ticker,
+        ingestion_status=IngestionStatus.ON_QUEUE,
+        created_at=dummy_old_date,
+        metadata=IngestionMetadata.objects.create(
+            start_ingestion_time=dummy_old_date,
+            end_ingestion_time=dummy_old_date + datetime.timedelta(days=3),
+            delta_category=IngestionTimespan.HOUR,
+            delta_multiplier=1,
+        ),
+    )
+    ingestion_status = IngestionStatus.FAILURE
+    response = client.put(
+        reverse("update_ingestion_status"),
+        data=json.dumps({"ingestion_status": ingestion_status.value, "id": st_ingestion.id}),
+    )
+    st_ingestion.refresh_from_db()
+    assert st_ingestion.ingestion_status == ingestion_status
+    assert st_ingestion.ingestion_finished_at
+
+
+@pytest.mark.django_db
+def test_cleanup(client):
+    ticker = create_dummy_ticker()
+    st_ingestion = StockIngestion.objects.create(
+        ticker=ticker,
+        ingestion_status=IngestionStatus.IN_PROGRESS,
+        created_at=dummy_old_date,
+        ingestion_started_at=datetime.datetime.now(tz=datetime.timezone.utc),
+        metadata=IngestionMetadata.objects.create(
+            start_ingestion_time=dummy_old_date,
+            end_ingestion_time=dummy_old_date + datetime.timedelta(days=3),
+            delta_category=IngestionTimespan.HOUR,
+            delta_multiplier=1,
+        ),
+    )
+    client.get(reverse("cleanup_ingestion_pending_status"))
+    st_ingestion.refresh_from_db()
+    assert st_ingestion.ingestion_status == IngestionStatus.IN_PROGRESS
+
+    st_ingestion = StockIngestion.objects.create(
+        ticker=ticker,
+        ingestion_status=IngestionStatus.IN_PROGRESS,
+        created_at=dummy_old_date,
+        ingestion_started_at=dummy_old_date,
+        metadata=IngestionMetadata.objects.create(
+            start_ingestion_time=dummy_old_date,
+            end_ingestion_time=dummy_old_date + datetime.timedelta(days=3),
+            delta_category=IngestionTimespan.HOUR,
+            delta_multiplier=1,
+        ),
+    )
+    client.get(reverse("cleanup_ingestion_pending_status"))
+    st_ingestion.refresh_from_db()
+    assert st_ingestion.ingestion_status == IngestionStatus.FAILURE
